@@ -2,20 +2,13 @@
 
 import atexit
 import json
-import os
 import re
 import socket
 import time
 import random
 import inspect
 import xml.etree.ElementTree as ElementTree
-from threading import Timer
-from threading import RLock
-from threading import Thread
-try:
-    from urllib.parse import urlparse
-except ImportError:
-    from urlparse import urlparse
+from threading import RLock, Thread, Timer
 
 from py_eureka_client.__logger__ import get_logger
 import py_eureka_client.http_client as http_client
@@ -57,6 +50,10 @@ HA_STRATEGY_STICK = 2
 This is for the DiscoveryClient, when this strategy is set, get_service_url will always return a new instance if any other instances are up
 """
 HA_STRATEGY_OTHER = 3
+"""
+This is for the DiscoveryClient, when this strategy is set, get_service_url will always return a new instance if any other instances are up
+"""
+HA_STRATEGY_ALL = 4
 
 """
 The timeout seconds that all http request to the eureka server
@@ -79,6 +76,7 @@ _DEFAULT_DATA_CENTER_INFO_CLASS = "com.netflix.appinfo.InstanceInfo$DefaultDataC
 Default encoding
 """
 _DEFAULT_ENCODING = "utf-8"
+
 
 ### =========================> Base Mehods <======================================== ###
 ### Beans ###
@@ -330,9 +328,10 @@ def cancel(eureka_server, app_name, instance_id):
     http_client.load(req, timeout=_DEFAULT_TIME_OUT)
 
 
-def send_heart_beat(eureka_server, app_name, instance_id, last_dirty_timestamp, status=INSTANCE_STATUS_UP, overriddenstatus=""):
+def send_heart_beat(eureka_server, app_name, instance_id, last_dirty_timestamp, status=INSTANCE_STATUS_UP,
+                    overriddenstatus=""):
     url = _format_url(eureka_server) + "apps/%s/%s?status=%s&lastDirtyTimestamp=%s" % \
-        (app_name, instance_id, status, str(last_dirty_timestamp))
+          (app_name, instance_id, status, str(last_dirty_timestamp))
     _logger.debug("heartbeat url::" + url)
     if overriddenstatus != "":
         url += "&overriddenstatus=" + overriddenstatus
@@ -344,7 +343,7 @@ def send_heart_beat(eureka_server, app_name, instance_id, last_dirty_timestamp, 
 
 def status_update(eureka_server, app_name, instance_id, last_dirty_timestamp, status):
     url = _format_url(eureka_server) + "apps/%s/%s?status=%s&lastDirtyTimestamp=%s" % \
-        (app_name, instance_id, status, str(last_dirty_timestamp))
+          (app_name, instance_id, status, str(last_dirty_timestamp))
 
     req = http_client.Request(url)
     req.get_method = lambda: "PUT"
@@ -353,7 +352,7 @@ def status_update(eureka_server, app_name, instance_id, last_dirty_timestamp, st
 
 def delete_status_override(eureka_server, app_name, instance_id, last_dirty_timestamp):
     url = _format_url(eureka_server) + "apps/%s/%s/status?lastDirtyTimestamp=%s" % \
-        (app_name, instance_id, str(last_dirty_timestamp))
+          (app_name, instance_id, str(last_dirty_timestamp))
 
     req = http_client.Request(url)
     req.get_method = lambda: "DELETE"
@@ -595,7 +594,8 @@ class RegistryClient:
         }
         mdata.update(metadata)
         self.__instance = {
-            'instanceId': instance_id if instance_id != "" else "%s:%s:%d" % (self.__instance_host, app_name.lower(), instance_port),
+            'instanceId': instance_id if instance_id != "" else "%s:%s:%d" % (
+                self.__instance_host, app_name.lower(), instance_port),
             'hostName': self.__instance_host,
             'app': app_name.upper(),
             'ipAddr': self.__instance_ip,
@@ -623,7 +623,8 @@ class RegistryClient:
             'metadata': mdata,
             'homePageUrl': RegistryClient.__format_url(home_page_url, self.__instance_host, instance_port),
             'statusPageUrl': RegistryClient.__format_url(status_page_url, self.__instance_host, instance_port, "info"),
-            'healthCheckUrl': RegistryClient.__format_url(health_check_url, self.__instance_host, instance_port, "health"),
+            'healthCheckUrl': RegistryClient.__format_url(health_check_url, self.__instance_host, instance_port,
+                                                          "health"),
             'secureHealthCheckUrl': secure_health_check_url,
             'vipAddress': vip_adr if vip_adr != "" else app_name.lower(),
             'secureVipAddress': secure_vip_addr if secure_vip_addr != "" else app_name.lower(),
@@ -719,8 +720,10 @@ class RegistryClient:
     def send_heart_beat(self, overridden_status=""):
         try:
             self.__try_all_eureka_server(lambda url: send_heart_beat(url, self.__instance["app"],
-                                                                     self.__instance["instanceId"], self.__instance["lastDirtyTimestamp"],
-                                                                     status=self.__instance["status"], overriddenstatus=overridden_status))
+                                                                     self.__instance["instanceId"],
+                                                                     self.__instance["lastDirtyTimestamp"],
+                                                                     status=self.__instance["status"],
+                                                                     overriddenstatus=overridden_status))
         except:
             _logger.exception("Error!")
             _logger.info("Cannot send heartbeat to server, try to register")
@@ -729,8 +732,9 @@ class RegistryClient:
     def status_update(self, new_status):
         self.__instance["status"] = new_status
         try:
-            self.__try_all_eureka_server(lambda url: status_update(url, self.__instance["app"], self.__instance["instanceId"],
-                                                                   self.__instance["lastDirtyTimestamp"], new_status))
+            self.__try_all_eureka_server(
+                lambda url: status_update(url, self.__instance["app"], self.__instance["instanceId"],
+                                          self.__instance["lastDirtyTimestamp"], new_status))
         except:
             _logger.exception("error!")
 
@@ -826,8 +830,10 @@ def get_registry_client():
 class DiscoveryClient:
     """Discover the apps registered in spring cloud server, this class will do some cached, if you want to get the apps immediatly, use the global functions"""
 
-    def __init__(self, eureka_server, regions=None, renewal_interval_in_secs=_RENEWAL_INTERVAL_IN_SECS, ha_strategy=HA_STRATEGY_RANDOM):
-        assert ha_strategy in [HA_STRATEGY_RANDOM, HA_STRATEGY_STICK, HA_STRATEGY_OTHER], "do not support strategy %d " % ha_strategy
+    def __init__(self, eureka_server, regions=None, renewal_interval_in_secs=_RENEWAL_INTERVAL_IN_SECS,
+                 ha_strategy=HA_STRATEGY_RANDOM):
+        assert ha_strategy in [HA_STRATEGY_RANDOM, HA_STRATEGY_STICK,
+                               HA_STRATEGY_OTHER, HA_STRATEGY_ALL], "do not support strategy %d " % ha_strategy
         self.__eureka_servers = eureka_server.split(",")
         self.__regions = regions if regions is not None else []
         self.__cache_time_in_secs = renewal_interval_in_secs
@@ -878,6 +884,7 @@ class DiscoveryClient:
         def do_pull(url):  # the actual function body
             self.__applications = get_applications(url, self.__regions)
             self.__delta = self.__applications
+
         self.__try_all_eureka_server(do_pull)
 
     def __fetch_delta(self):
@@ -895,6 +902,7 @@ class DiscoveryClient:
             self.__delta = delta
             if not self.__is_hash_match():
                 self.__pull_full_registry()
+
         self.__try_all_eureka_server(do_fetch)
 
     def __is_hash_match(self):
@@ -933,10 +941,12 @@ class DiscoveryClient:
             app_hash = app_hash + "%s_%d_" % (item[0], item[1])
         return app_hash
 
-    def walk_nodes_async(self, app_name="", service="", prefer_ip=False, prefer_https=False, walker=None, on_success=None, on_error=None):
+    def walk_nodes_async(self, app_name="", service="", prefer_ip=False, prefer_https=False, walker=None,
+                         on_success=None, on_error=None):
         def async_thread_target():
             try:
-                res = self.walk_nodes(app_name=app_name, service=service, prefer_ip=prefer_ip, prefer_https=prefer_https, walker=walker)
+                res = self.walk_nodes(app_name=app_name, service=service, prefer_ip=prefer_ip,
+                                      prefer_https=prefer_https, walker=walker)
                 if on_success is not None and (inspect.isfunction(on_success) or inspect.ismethod(on_success)):
                     on_success(res)
             except http_client.HTTPError as e:
@@ -969,6 +979,45 @@ class DiscoveryClient:
                 node = self.__get_available_service(app_name, error_nodes)
 
         raise http_client.URLError("Try all up instances in registry, but all fail")
+
+    @staticmethod
+    def __get_all_available_service(app, ignore_instance_ids=None):
+        up_instances = []
+        if ignore_instance_ids is None or len(ignore_instance_ids) == 0:
+            up_instances.extend(app.up_instances)
+        else:
+            for ins in app.up_instances:
+                if ins.instanceId not in ignore_instance_ids:
+                    up_instances.append(ins)
+        return up_instances
+
+    def __get_app_with_app_name(self, application_name):
+        return self.applications.get_application(application_name)
+
+    def walk_all_nodes(self, app_name="", service="", prefer_ip=False, prefer_https=False, walker=None):
+
+        assert app_name is not None and app_name != "", "application_name should not be null"
+        assert inspect.isfunction(walker) or inspect.ismethod(walker), "walker must be a method or function"
+        app_name = app_name.upper()
+        app = self.__get_app_with_app_name(app_name)
+        if app is None:
+            return None
+        nodes = self.__get_all_available_service(app)
+        res = {}
+        while nodes:
+            node = nodes.pop()
+            url = self.__generate_service_url(node, prefer_ip, prefer_https)
+            try:
+                url = url + service[1:] if service.startswith("/") else url + service
+                _logger.debug("service url::" + url)
+                res[url] = walker(url)
+            except (http_client.HTTPError, http_client.URLError):
+                _logger.warn("do service %s in node [%s] error, use next node." % (service, node.instanceId))
+                # error_nodes.append(node.instanceId)
+                res[url] = None
+        if not res:
+            raise http_client.URLError("Try all up instances in registry, but all fail")
+        return res
 
     def do_service_async(self, app_name="", service="", return_type="string",
                          prefer_ip=False, prefer_https=False,
@@ -1007,24 +1056,22 @@ class DiscoveryClient:
             for k, v in heads.items():
                 req.add_header(k, v)
 
-            res_txt = http_client.load(req, data=data, timeout=timeout, cafile=cafile, capath=capath, cadefault=cadefault, context=context)
+            res_txt = http_client.load(req, data=data, timeout=timeout, cafile=cafile, capath=capath,
+                                       cadefault=cadefault, context=context)
             if return_type.lower() in ("json", "dict", "dictionary"):
                 return json.loads(res_txt)
             else:
                 return res_txt
+
+        if self.__ha_strategy == HA_STRATEGY_ALL:
+            return self.walk_all_nodes(app_name, service, prefer_ip, prefer_https, walk_using_urllib)
         return self.walk_nodes(app_name, service, prefer_ip, prefer_https, walk_using_urllib)
 
     def __get_available_service(self, application_name, ignore_instance_ids=None):
-        app = self.applications.get_application(application_name)
+        app = self.__get_app_with_app_name(application_name)
         if app is None:
             return None
-        up_instances = []
-        if ignore_instance_ids is None or len(ignore_instance_ids) == 0:
-            up_instances.extend(app.up_instances)
-        else:
-            for ins in app.up_instances:
-                if ins.instanceId not in ignore_instance_ids:
-                    up_instances.append(ins)
+        up_instances = self.__get_all_available_service(app, ignore_instance_ids)
 
         if len(up_instances) == 0:
             # no up instances
@@ -1099,7 +1146,7 @@ class DiscoveryClient:
         self.__timer.start()
 
     def stop(self):
-        if self.__timer.isAlive():
+        if self.__timer.is_alive():
             self.__timer.cancel()
 
 
@@ -1107,10 +1154,12 @@ __cache_discovery_clients = {}
 __cache_discovery_clients_lock = RLock()
 
 
-def init_discovery_client(eureka_server=_DEFAULT_EUREKA_SERVER_URL, regions=[], renewal_interval_in_secs=_RENEWAL_INTERVAL_IN_SECS, ha_strategy=HA_STRATEGY_RANDOM):
+def init_discovery_client(eureka_server=_DEFAULT_EUREKA_SERVER_URL, regions=[],
+                          renewal_interval_in_secs=_RENEWAL_INTERVAL_IN_SECS, ha_strategy=HA_STRATEGY_RANDOM):
     with __cache_discovery_clients_lock:
         assert __cache_key not in __cache_discovery_clients, "Client has already been initialized."
-        cli = DiscoveryClient(eureka_server, regions=regions, renewal_interval_in_secs=renewal_interval_in_secs, ha_strategy=ha_strategy)
+        cli = DiscoveryClient(eureka_server, regions=regions, renewal_interval_in_secs=renewal_interval_in_secs,
+                              ha_strategy=ha_strategy)
         cli.start()
         __cache_discovery_clients[__cache_key] = cli
         return cli
@@ -1176,7 +1225,8 @@ def init(eureka_server=_DEFAULT_EUREKA_SERVER_URL,
     return registry_client, discovery_client
 
 
-def walk_nodes_async(app_name="", service="", prefer_ip=False, prefer_https=False, walker=None, on_success=None, on_error=None):
+def walk_nodes_async(app_name="", service="", prefer_ip=False, prefer_https=False, walker=None, on_success=None,
+                     on_error=None):
     cli = get_discovery_client()
     if cli is None:
         raise Exception("Discovery Client has not initialized. ")
@@ -1241,10 +1291,12 @@ def _cleanup_before_exist():
     if len(__cache_registry_clients) > 0:
         _logger.debug("cleaning up registry clients")
         for k, cli in __cache_registry_clients.items():
-            _logger.debug("try to stop cache registry client [%s] this will also unregister this client from the eureka server" % k)
+            _logger.debug(
+                "try to stop cache registry client [%s] this will also unregister this client from the eureka server" % k)
             cli.stop()
     if len(__cache_discovery_clients) > 0:
         _logger.debug("cleaning up discovery clients")
         for k, cli in __cache_discovery_clients.items():
-            _logger.debug("try to stop cache discovery client [%s] this will also unregister this client from the eureka server" % k)
+            _logger.debug(
+                "try to stop cache discovery client [%s] this will also unregister this client from the eureka server" % k)
             cli.stop()
